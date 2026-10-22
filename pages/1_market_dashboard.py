@@ -9,7 +9,6 @@ selected = st.session_state['market']
 config = MARKETS[selected]
 st.title('🌍 Market overview')
 st.caption('India · USA · ASX · Gold | five-minute screen updates, subject to market hours and vendor delays')
-st.info('Rankings cover ONLY the sample symbols configured for the selected market, not every stock on the exchange. Data rerun ≠ a new exchange quote.')
 
 @st.fragment(run_every='300s')
 def refresh_panels():
@@ -18,6 +17,23 @@ def refresh_panels():
     if st.button('🔄 Refresh prices now', key='refresh_markets'):
         movers.clear()
         candles.clear()
+    # Separate benchmark request keeps indices out of stock rankings and exports.
+    with st.spinner('Loading market summary...'):
+        summary = movers(tuple(config['indices'].values()), config['timezone'])
+    columns = st.columns(len(config['indices']))
+    for col, (label, symbol) in zip(columns, config['indices'].items()):
+        with col:
+            quote = summary.loc[summary['Symbol'] == symbol] if not summary.empty else summary
+            if quote.empty:
+                st.metric(label, 'Unavailable', help=f'{symbol} · No usable quote returned by Yahoo.')
+            else:
+                row = quote.iloc[0]
+                st.metric(label, f"{row['Last']:,.2f}", f"{row['Change %']:+.2f}%",
+                          help=f"{symbol} · Change versus previous session close: {row['Previous close']:,.2f}")
+                st.caption(f"{symbol} · {row['Source']} · {row['As of']}")
+    st.caption('Yahoo/yfinance · latest available bars, potentially delayed. Percentage change is versus the previous market-session close. Each instrument has its own quote time.')
+    st.divider()
+    st.info('Rankings cover ONLY the sample symbols configured for the selected market, not every stock on the exchange. Data rerun ≠ a new exchange quote.')
     with st.spinner('Loading latest available quotes...'):
         df = movers(tuple(config['symbols']), config['timezone'])
     if df.empty:

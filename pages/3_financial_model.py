@@ -56,13 +56,20 @@ with d:
 w1,w2 = st.columns(2)
 with w1: wacc = st.number_input('WACC %',min_value=1.0,max_value=40.0,value=10.0,step=.5)/100
 with w2: growth = st.number_input('Perpetual terminal growth %',min_value=-5.0,max_value=15.0,value=3.0,step=.5)/100
+with st.expander('Valuation-date equity bridge adjustments (millions)', expanded=False):
+    minority = st.number_input('Minority interest', min_value=0.0, value=0.0)
+    preferred = st.number_input('Preferred equity', min_value=0.0, value=0.0)
+    nonoperating = st.number_input('Other nonoperating assets (excluding opening cash)', min_value=0.0, value=0.0)
+    st.caption('Use evidenced amounts in the same currency and scale. Opening cash is already added; do not include it again. Shares outstanding must represent diluted shares for diluted per-share valuation.')
+bridge = dict(minority_interest=minority, preferred_equity=preferred,
+              nonoperating_assets=nonoperating)
 
 try:
     base = Base(**base_inputs)
     assumptions = Drivers(sales_growth, cogs, opex, da, capex, dso, dio, dpo,
                           interest, tax, payout, repayment, wacc, growth)
     f = forecast(base, assumptions)
-    value = dcf(f, base, wacc, growth)
+    value = dcf(f, base, wacc, growth, **bridge)
 except ValueError as exc:
     st.error(str(exc))
     st.stop()
@@ -95,7 +102,7 @@ rows=[]
 for ww in ws:
     rec={'WACC':f'{ww:.1%}'}
     for gg in gs:
-        rec[f'{gg:.1%}'] = round(dcf(f,base,ww,gg)['Implied price / share'],2) if ww > gg else None
+        rec[f'{gg:.1%}'] = round(dcf(f,base,ww,gg,**bridge)['Implied price / share'],2) if ww > gg else None
     rows.append(rec)
 st.dataframe(pd.DataFrame(rows).set_index('WACC'),use_container_width=True)
 st.download_button('Download linked 3-statement forecast CSV',f.to_csv().encode('utf-8'),

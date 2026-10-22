@@ -1,5 +1,6 @@
 """Simple linked 3-statement, unlevered DCF model. Monetary inputs are in *millions*."""
 from dataclasses import dataclass
+from math import isfinite
 import pandas as pd
 
 
@@ -95,17 +96,42 @@ def forecast(b: Base, a: Drivers, years: int = 5) -> pd.DataFrame:
     return pd.DataFrame(out).set_index('Year')
 
 
-def dcf(f: pd.DataFrame, b: Base, wacc: float, terminal_growth: float) -> dict:
+def dcf(f: pd.DataFrame, b: Base, wacc: float, terminal_growth: float, *,
+        minority_interest: float = 0, preferred_equity: float = 0,
+        nonoperating_assets: float = 0) -> dict:
+    """Year-end FCFF DCF; amounts and diluted shares are in millions.
+
+    Bridge inputs are valuation-date amounts in the same currency and scale.
+    Nonoperating assets exclude cash already included in Base (no double count).
+    Zero additional claims preserve the original cash/debt-only bridge. Negative
+    FCFF is allowed; terminal FCFF grows from the final explicit annual cash flow.
+    """
+    inputs = (wacc, terminal_growth, b.shares_millions, b.cash, b.debt,
+              minority_interest, preferred_equity, nonoperating_assets)
+    if not all(isfinite(x) for x in inputs):
+        raise ValueError('DCF inputs must be finite.')
+    if wacc <= -1 or terminal_growth <= -1:
+        raise ValueError('WACC and terminal growth must exceed -100%.')
     if wacc <= terminal_growth:
         raise ValueError('WACC must exceed terminal growth.')
     if b.shares_millions <= 0:
         raise ValueError('Shares outstanding must be positive.')
-    cashflows = f['FCFF'].to_numpy()
+    if min(b.cash, b.debt, minority_interest, preferred_equity, nonoperating_assets) < 0:
+        raise ValueError('Cash, debt, additional claims and assets cannot be negative.')
+    if 'FCFF' not in f.columns or f.empty:
+        raise ValueError('DCF requires at least one annual FCFF.')
+    try:
+        cashflows = f['FCFF'].to_numpy(dtype=float)
+    except (TypeError, ValueError) as exc:
+        raise ValueError('Annual FCFF must contain numeric finite values.') from exc
+    if cashflows.ndim != 1 or not all(isfinite(cf) for cf in cashflows):
+        raise ValueError('Annual FCFF must contain numeric finite values.')
     discounted_fcff = sum(float(cf) / ((1 + wacc) ** (i + 1)) for i, cf in enumerate(cashflows))
     terminal_value = float(cashflows[-1]) * (1 + terminal_growth) / (wacc - terminal_growth)
     pv_terminal = terminal_value / ((1 + wacc) ** len(cashflows))
     ev = discounted_fcff + pv_terminal
-    equity_value = ev + b.cash - b.debt  # valuation-date bridge
+    equity_value = (ev + b.cash - b.debt - minority_interest - preferred_equity
+                    + nonoperating_assets)
     return {'PV forecast FCFF': discounted_fcff, 'PV terminal value': pv_terminal,
             'Enterprise value': ev, 'Equity value': equity_value,
             'Implied price / share': equity_value / b.shares_millions,

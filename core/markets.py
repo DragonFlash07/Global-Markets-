@@ -15,8 +15,8 @@ USA = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "JPM", "BAC", "V
 ASX = ["BHP.AX", "CBA.AX", "CSL.AX", "WBC.AX", "NAB.AX", "ANZ.AX", "WES.AX", "WOW.AX", "MQG.AX", "RIO.AX", "FMG.AX", "WDS.AX", "TCL.AX", "ALL.AX", "GMG.AX", "TLS.AX", "COL.AX", "S32.AX", "QBE.AX", "STO.AX"]
 GOLD = ["GC=F", "GLD", "IAU", "GOLD.AX"]  # futures + ETFs; distinct instruments/currencies
 MARKETS = {
-    "India · NSE sample": {"symbols": INDIA, "timezone": "Asia/Kolkata", "currency": "INR", "indices": {"Nifty 50": "^NSEI", "Sensex": "^BSESN"}, "default": "RELIANCE.NS"},
-    "USA · liquid-stock sample": {"symbols": USA, "timezone": "America/New_York", "currency": "USD", "indices": {"S&P 500": "^GSPC", "Nasdaq": "^IXIC"}, "default": "AAPL"},
+    "India · NSE sample": {"symbols": INDIA, "timezone": "Asia/Kolkata", "currency": "INR", "indices": {"Nifty 50": "^NSEI", "Sensex": "^BSESN", "Bank Nifty": "^NSEBANK", "Nifty IT": "^CNXIT"}, "default": "RELIANCE.NS"},
+    "USA · liquid-stock sample": {"symbols": USA, "timezone": "America/New_York", "currency": "USD", "indices": {"S&P 500": "^GSPC", "Nasdaq": "^IXIC", "Dow Jones": "^DJI", "Russell 2000": "^RUT"}, "default": "AAPL"},
     "Australia · ASX sample": {"symbols": ASX, "timezone": "Australia/Sydney", "currency": "AUD", "indices": {"ASX 200": "^AXJO"}, "default": "BHP.AX"},
-    "Gold · futures and ETFs": {"symbols": GOLD, "timezone": "America/New_York", "currency": "Mixed", "indices": {}, "default": "GC=F"},
+    "Gold · futures and ETFs": {"symbols": GOLD, "timezone": "America/New_York", "currency": "Mixed", "indices": {"Gold futures · USD/oz": "GC=F", "GLD ETF · USD/share": "GLD"}, "default": "GC=F"},
 }

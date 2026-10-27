@@ -19,5 +19,6 @@ with st.sidebar:
 st.navigation([
     st.Page('pages/1_market_dashboard.py', title='Market dashboard', icon='🌍', default=True),
     st.Page('pages/2_candlestick_lab.py', title='Technical chart lab', icon='📉'),
-    st.Page('pages/3_financial_model.py', title='3 statements + DCF', icon='📘'),
+    st.Page('pages/3_financial_model.py', title='Three-statement model', icon='📘'),
+    st.Page('pages/4_dcf_valuation.py', title='DCF valuation', icon='💎'),
 ]).run()

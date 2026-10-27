@@ -5,8 +5,8 @@ from core.financial_model import Base, Drivers, forecast, dcf
 from core.data import statements
 from core.markets import MARKETS
 
-st.title('📘 3-statement modelling & DCF')
-st.caption('FMVA-style: forecast drivers → income statement → balance sheet → cash flow → FCFF → valuation')
+st.title('📘 Three-statement model')
+st.caption('FMVA-style: forecast drivers → income statement → balance sheet → cash flow → free cash flow')
 st.warning('This is an educational, editable forecast, NOT a validated model of a listed company. All default inputs are illustrative and monetary amounts / shares are in MILLIONS of one chosen currency.')
 if st.session_state['market'].startswith('Gold'):
     st.info('Spot gold and gold futures do not have corporate financial statements. Use this model for an operating company such as a gold miner; inputs here are a hypothetical company.')
@@ -53,17 +53,17 @@ with d:
     interest = st.slider('Debt interest %',0,25,6)/100
     payout = st.slider('Dividend payout %',0,100,20)/100
     repayment = st.slider('Annual debt repayment %',0,100,5)/100
-w1,w2 = st.columns(2)
-with w1: wacc = st.number_input('WACC %',min_value=1.0,max_value=40.0,value=10.0,step=.5)/100
-with w2: growth = st.number_input('Perpetual terminal growth %',min_value=-5.0,max_value=15.0,value=3.0,step=.5)/100
 
 try:
     base = Base(**base_inputs)
     assumptions = Drivers(sales_growth, cogs, opex, da, capex, dso, dio, dpo,
-                          interest, tax, payout, repayment, wacc, growth)
+                          interest, tax, payout, repayment)
     f = forecast(base, assumptions)
-    value = dcf(f, base, wacc, growth)
+    st.session_state['valuation_model'] = {'forecast': f, 'base': base}
+    st.session_state.pop('valuation_model_error', None)
 except ValueError as exc:
+    st.session_state.pop('valuation_model', None)
+    st.session_state['valuation_model_error'] = str(exc)
     st.error(str(exc))
     st.stop()
 
@@ -79,25 +79,7 @@ st.success(f'Projected balance-sheet reconciliation · max imbalance: {check:,.8
 opening_other = base.payables + base.debt + base.equity - (base.cash + base.receivables + base.inventory + base.ppe)
 st.caption(f'FY0 balancing residual (Other net assets / liabilities): {opening_other:,.2f} million. Enter real audited opening figures before professional use. Negative forecast cash is possible and signals missing financing, not a valid funding plan.')
 
-st.subheader('Step 4 · DCF valuation')
-m = st.columns(4)
-for col,key in zip(m,['Enterprise value','Equity value','Implied price / share','Terminal value share %']):
-    col.metric(key,f"{value[key]:,.2f}"+(' %' if key.endswith('%') else ''))
-fig = go.Figure()
-fig.add_bar(x=f.index,y=f['FCFF'],name='Projected FCFF',marker_color='#1dcaa2')
-fig.update_layout(title='Projected unlevered free cash flows (millions)',template='plotly_dark',height=330)
-st.plotly_chart(fig,use_container_width=True)
-
-st.markdown('#### WACC / perpetual-growth sensitivity · implied price per share')
-ws = [wacc + x/100 for x in [-2,-1,0,1,2]]
-gs = [growth + x/100 for x in [-1,-.5,0,.5,1]]
-rows=[]
-for ww in ws:
-    rec={'WACC':f'{ww:.1%}'}
-    for gg in gs:
-        rec[f'{gg:.1%}'] = round(dcf(f,base,ww,gg)['Implied price / share'],2) if ww > gg else None
-    rows.append(rec)
-st.dataframe(pd.DataFrame(rows).set_index('WACC'),use_container_width=True)
+st.page_link('pages/4_dcf_valuation.py', label='Continue to DCF valuation →', icon='💎')
 st.download_button('Download linked 3-statement forecast CSV',f.to_csv().encode('utf-8'),
                    'financial_model_forecast.csv',mime='text/csv')
 st.caption('Simplifications: fixed operating ratios; no deferred tax, lease accounting, SBC, NOLs, M&A or revolving-credit facility; no mid-year convention. Validate inputs and filings independently.')

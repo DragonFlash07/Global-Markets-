@@ -1,85 +1,62 @@
+"""Company-scoped annual modelling workspace."""
+from dataclasses import asdict
+import hashlib
+import json
 import pandas as pd
 import streamlit as st
-import plotly.graph_objects as go
-from core.financial_model import Base, Drivers, forecast, dcf
-from core.data import statements
-from core.markets import MARKETS
+from core.research_model import Opening, Annual, project
 
-st.title('📘 Three-statement model')
-st.caption('FMVA-style: forecast drivers → income statement → balance sheet → cash flow → free cash flow')
-st.warning('This is an educational, editable forecast, NOT a validated model of a listed company. All default inputs are illustrative and monetary amounts / shares are in MILLIONS of one chosen currency.')
-if st.session_state['market'].startswith('Gold'):
-    st.info('Spot gold and gold futures do not have corporate financial statements. Use this model for an operating company such as a gold miner; inputs here are a hypothetical company.')
-
-with st.expander('Step 1 · Historical statements from Yahoo (reference only)',expanded=False):
-    market = MARKETS[st.session_state['market']]
-    default_symbol = market['default'] if market['default'] != 'GC=F' else 'NEM'
-    ticker = st.text_input('Yahoo ticker to retrieve company statements',value=default_symbol).upper().strip()
-    if st.button('Fetch historical statements'):
-        income, balance, cashflow = statements(ticker)
-        tabs = st.tabs(['Income','Balance sheet','Cash flow'])
-        for tab, data in zip(tabs,[income,balance,cashflow]):
-            with tab:
-                if data is None or data.empty:
-                    st.info('Unavailable for this ticker; try another provider or company filing.')
-                else:
-                    st.dataframe(data,use_container_width=True)
-        st.caption('Fetched values are separate from the editable model; mapping/normalisation and statement audits must be completed before using live company assumptions.')
-
-st.subheader('Step 2 · Opening balance sheet and forecast assumptions')
-with st.expander('Opening figures (millions of currency units; FY0)',expanded=False):
+st.title('Three-statement modelling')
+st.caption('Opening balances → annual operating assumptions → financing → linked statements')
+company = st.selectbox('Research company', ['BHP Group', 'Reliance Jio Infocomm'], key='research_company')
+mode = st.radio('Data basis', ['Company research — enter sourced inputs', 'Learning example — synthetic inputs'], key='model_basis')
+learning = mode.startswith('Learning')
+source = st.text_input('Opening financials source URL / filing reference', key=f'source_{company}')
+period = st.number_input('Opening fiscal year', value=2025, min_value=2000, max_value=2100, key=f'fy_{company}')
+currency = st.selectbox('Reporting currency (all amounts and shares in millions)', ['USD','INR','AUD'], index=1 if company.startswith('Reliance') else 0, key=f'currency_{company}')
+st.info('BHP: use commodity volume, price and cost evidence to set annual revenue/cost assumptions. Jio: use subscribers, ARPU, network CapEx and spectrum obligations. Segment-driven schedules are not yet implemented.')
+if learning:
+    st.warning('Synthetic teaching example. These figures do not represent BHP or Jio.')
+else:
+    st.caption('Enter consolidated/standalone scope consistently. No stock ticker is substituted for Jio. Other assets/liabilities must be sourced, not a balancing plug.')
+    st.link_button('Official financial reports', 'https://www.jio.com/about/investor-relations/financials/' if company.startswith('Reliance') else 'https://www.bhp.com/annualreport')
+example = Opening(1000,90,120,90,550,0,80,200,0,570,100)
+with st.expander('Opening statements · explicit balances', expanded=True):
+    inputs = {}
     cols = st.columns(3)
-    specs = [('revenue','Opening revenue',1000.),('cash','Cash',90.),('receivables','Receivables',120.),
-             ('inventory','Inventory',90.),('ppe','Net PP&E',550.),('payables','Payables',80.),
-             ('debt','Total debt',200.),('equity','Book equity',570.),('shares_millions','Shares outstanding (millions)',100.)]
-    base_inputs = {}
-    for i,(key,label,default) in enumerate(specs):
-        with cols[i%3]: base_inputs[key] = st.number_input(label,value=default,step=10.,key='b_'+key)
-
-a,b,c,d = st.columns(4)
-with a:
-    sales_growth = st.slider('Annual revenue growth %',-30,40,8)/100
-    cogs = st.slider('COGS / revenue %',0,95,60)/100
-    opex = st.slider('Operating expenses / revenue %',0,90,22)/100
-with b:
-    da = st.slider('D&A / revenue %',0,30,3)/100
-    capex = st.slider('CapEx / revenue %',0,40,7)/100
-    tax = st.slider('Tax rate %',0,50,25)/100
-with c:
-    dso = st.slider('Receivables days (DSO)',0,180,44)
-    dio = st.slider('Inventory days (DIO)',0,180,55)
-    dpo = st.slider('Payables days (DPO)',0,180,49)
-with d:
-    interest = st.slider('Debt interest %',0,25,6)/100
-    payout = st.slider('Dividend payout %',0,100,20)/100
-    repayment = st.slider('Annual debt repayment %',0,100,5)/100
-
-try:
-    base = Base(**base_inputs)
-    assumptions = Drivers(sales_growth, cogs, opex, da, capex, dso, dio, dpo,
-                          interest, tax, payout, repayment)
-    f = forecast(base, assumptions)
-    st.session_state['valuation_model'] = {'forecast': f, 'base': base}
-    st.session_state.pop('valuation_model_error', None)
-except ValueError as exc:
-    st.session_state.pop('valuation_model', None)
-    st.session_state['valuation_model_error'] = str(exc)
-    st.error(str(exc))
+    for i,(key,val) in enumerate(asdict(example).items()):
+        with cols[i%3]:
+            inputs[key] = st.number_input(key.replace('_',' ').title(), value=float(val) if learning else 0., key=f'opening_{company}_{learning}_{key}')
+    st.caption('Shares are diluted shares of this legal entity, not its parent. Other balance-sheet categories are held constant in this initial engine.')
+scenario = st.selectbox('Scenario', ['Base','Bull','Bear'])
+seed = pd.DataFrame([asdict(Annual(revenue_growth={'Base':.05,'Bull':.08,'Bear':-.02}[scenario])) for _ in range(5)], index=range(int(period)+1,int(period)+6))
+st.subheader('Annual assumptions')
+st.caption('Rates are decimals (0.05 = 5%). CapEx, depreciation, financing and dividends are absolute amounts in millions. Facility limit is the total available revolver. Scenarios have separate editable grids; their initial values are illustrative.')
+drivers = st.data_editor(seed, key=f'drivers_{company}_{scenario}_{period}_{learning}', use_container_width=True)
+ack = learning or st.checkbox('I have checked the opening balances, reporting scope, units and source reference.', key=f'ack_{company}')
+# Discard old results before rebuilding to avoid valuing stale/invalid inputs.
+st.session_state.pop('valuation_model', None)
+if not learning and (not source.strip() or not ack):
+    st.info('Add a source reference and verify the opening inputs to build a company forecast.')
     st.stop()
-
-st.subheader('Step 3 · Linked 5-year financial statements')
-inc = ['Revenue','COGS','Operating expenses','D&A','EBIT','Interest','EBT','Taxes','Net income']
-bs = ['Cash','Accounts receivable','Inventory','PP&E','Other net assets / (liabilities)',
-      'Total assets (net)','Accounts payable','Debt','Equity','Liabilities and equity','Balance check']
-cf = ['Cash from operations','Capital expenditure','Investing cash flow','Financing cash flow','Net cash movement','Change in NWC','FCFF']
-for tab,rows in zip(st.tabs(['Income statement','Balance sheet','Cash flow / FCFF']),[inc,bs,cf]):
-    with tab: st.dataframe(f[rows].T.style.format('{:,.2f}'),use_container_width=True)
-check = f['Balance check'].abs().max()
-st.success(f'Projected balance-sheet reconciliation · max imbalance: {check:,.8f} million') if check < 1e-6 else st.error(f'Balance mismatch: {check:,.2f} million')
-opening_other = base.payables + base.debt + base.equity - (base.cash + base.receivables + base.inventory + base.ppe)
-st.caption(f'FY0 balancing residual (Other net assets / liabilities): {opening_other:,.2f} million. Enter real audited opening figures before professional use. Negative forecast cash is possible and signals missing financing, not a valid funding plan.')
-
-st.page_link('pages/4_dcf_valuation.py', label='Continue to DCF valuation →', icon='💎')
-st.download_button('Download linked 3-statement forecast CSV',f.to_csv().encode('utf-8'),
-                   'financial_model_forecast.csv',mime='text/csv')
-st.caption('Simplifications: fixed operating ratios; no deferred tax, lease accounting, SBC, NOLs, M&A or revolving-credit facility; no mid-year convention. Validate inputs and filings independently.')
+try:
+    opening = Opening(**inputs)
+    forecast = project(opening, [Annual(**row) for row in drivers.to_dict('records')], int(period)+1)
+except (ValueError, TypeError) as exc:
+    st.error(str(exc)); st.stop()
+st.subheader(f'{company} · {scenario} · {currency} millions')
+for tab, rows in zip(st.tabs(['Income statement','Balance sheet','Cash flow','Checks']), [
+    ['Revenue','COGS','Operating expenses','EBITDA','D&A','EBIT','Interest','EBT','Cash taxes','Net income'],
+    ['Cash','Accounts receivable','Inventory','PP&E','Other assets','Total assets','Accounts payable','Term debt','Revolver','Other liabilities','Equity','Liabilities and equity'],
+    ['Cash from operations','Investing cash flow','Financing cash flow','Net cash movement','Change in NWC','Unlevered cash taxes','FCFF'],
+    ['Balance check','Cash check','Funding shortfall','Tax losses','Unlevered tax losses']]):
+    with tab: st.dataframe(forecast[rows].T.style.format('{:,.2f}'), use_container_width=True)
+funded = forecast['Funding shortfall'].max() < 1e-6
+if not funded: st.error('Funding shortfall: revise CapEx, dividends or committed financing before valuation.')
+else:
+    fingerprint = hashlib.sha256(json.dumps({'opening':inputs,'drivers':drivers.to_dict(),'company':company,'currency':currency,'scenario':scenario,'source':source,'period':int(period),'learning':learning},sort_keys=True).encode()).hexdigest()[:12]
+    st.session_state['valuation_model'] = dict(forecast=forecast,base=opening,company=company,currency=currency,scenario=scenario,source=source,learning=learning,version=fingerprint,period=int(period))
+    st.success('Opening and forecast balances reconcile; forecast cash movements are linked.')
+    st.page_link('pages/4_dcf_valuation.py',label='Open DCF valuation →')
+st.download_button('Export forecast CSV', forecast.to_csv(), 'forecast.csv', mime='text/csv')
+st.caption('Initial engine: interest on opening debt; accounting depreciation equals tax depreciation; no deferred taxes, leases, disposals, dilution or changing other balances. Tax losses are carried forward without expiry; local restrictions require separate modelling. Company entry is manually sourced, not audited automatically.')

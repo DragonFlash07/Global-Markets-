@@ -1,51 +1,60 @@
-"""Valuation workspace using the latest explicit forecast in this session."""
 import pandas as pd
 import streamlit as st
-import plotly.graph_objects as go
-from core.financial_model import dcf
+from core.research_model import cost_of_capital, value_business
 
-st.title('💎 DCF valuation')
-st.caption('Linked forecast → discounted FCFF → enterprise value → equity value')
+st.title('DCF valuation')
 model = st.session_state.get('valuation_model')
-if model is None:
-    st.info('Build a three-statement forecast first. Its inputs and cash flows will be carried into this page for this session.')
-    st.page_link('pages/3_financial_model.py', label='Build financial forecast', icon='📘')
-    st.stop()
-f, base = model['forecast'], model['base']
-st.warning('Illustrative company model. Amounts and shares are in millions of one currency; price per share is in currency units. Historical Yahoo statements are not automatically mapped to these inputs.')
-st.page_link('pages/3_financial_model.py', label='Review or edit forecast assumptions', icon='📘')
-with st.expander('Forecast used in this valuation', expanded=False):
-    st.dataframe(f[['Revenue', 'EBIT', 'FCFF']].T, use_container_width=True)
-    st.caption(f'Opening cash: {base.cash:,.2f} · debt: {base.debt:,.2f} · shares: {base.shares_millions:,.2f} million')
-a, b = st.columns(2)
-with a: wacc = st.number_input('WACC %', min_value=1.0, max_value=40.0, value=10.0, step=.5) / 100
-with b: growth = st.number_input('Perpetual terminal growth %', min_value=-5.0, max_value=15.0, value=3.0, step=.5) / 100
+if not model:
+    st.info('Build and reconcile a three-statement forecast first.')
+    st.page_link('pages/3_financial_model.py',label='Open three-statement model'); st.stop()
+f,b = model['forecast'],model['base']
+st.subheader(f"{model['company']} · {model['scenario']} · {model['currency']}")
+st.caption(f"Forecast snapshot {model['version']} · opening FY{model['period']} · amounts and shares in millions")
+if model['learning']: st.warning('Synthetic learning example — not a company valuation.')
+else: st.caption('Source reference: '+model['source'])
+st.page_link('pages/3_financial_model.py', label='Edit forecast assumptions')
+st.subheader('Cost of capital')
+with st.expander('CAPM and market-value financing weights', expanded=True):
+    a,c,d = st.columns(3)
+    rf=a.number_input('Risk-free rate %', value=4., min_value=0.)/100
+    beta=c.number_input('Levered beta',value=1.,min_value=0.)
+    erp=d.number_input('Equity risk premium %',value=5.,min_value=0.)/100
+    rd=a.number_input('Pre-tax cost of debt %',value=6.,min_value=0.)/100
+    tax=c.number_input('Marginal tax rate %',value=30.,min_value=0.,max_value=100.)/100
+    ew=d.number_input('Equity market-value weight %',value=80.,min_value=0.,max_value=100.)/100
+    re,wacc=cost_of_capital(rf,beta,erp,rd,tax,ew)
+    st.caption(f'Cost of equity: {re:.2%} · calculated WACC: {wacc:.2%}. Defaults are illustrative; rates must match the reporting currency.')
+    evidence=st.text_input('WACC sources and as-of date')
+if not model['learning'] and not evidence.strip():
+    st.info('Document the WACC sources and date before computing a company valuation.'); st.stop()
+method=st.radio('Terminal method',['Perpetual growth','Exit EBITDA multiple'], horizontal=True)
+g=st.number_input('Terminal growth %',value=2.,min_value=-10.,max_value=20.)/100
+norm=st.number_input('Normalized next-year terminal FCFF (millions)',value=max(float(f['FCFF'].iloc[-1])*(1+g),0.),min_value=0.)
+multiple=st.number_input('Exit EBITDA multiple',value=7.,min_value=.1)
+st.caption('Normalize terminal reinvestment and margins explicitly. This control does not automatically validate growth versus reinvestment. Annual year-end discounting is used here; no partial-year adjustment.')
+with st.expander('Enterprise-to-equity bridge',expanded=True):
+    cols=st.columns(3)
+    adjustments={}
+    for i,(key,label,default) in enumerate([('cash','Opening cash',b.cash),('debt','Opening debt',b.debt),('minority','Non-controlling interests',0.),('preferred','Preferred equity',0.),('other_assets','Non-operating assets excluding cash',0.),('shares','Diluted shares (millions)',b.shares)]):
+        adjustments[key]=cols[i%3].number_input(label,value=float(default),min_value=0.)
+    st.caption('Use a valuation-date bridge consistently. Lease/spectrum obligations must be classified once, without double-counting related operating cash flows.')
 try:
-    value = dcf(f, base, wacc, growth)
+    kw=dict(growth=g,terminal_fcff=norm,**adjustments)
+    if method.startswith('Exit'):kw.update(exit_multiple=multiple,exit_ebitda=float(f['EBITDA'].iloc[-1]))
+    result=value_business(f['FCFF'],wacc,**kw)
 except ValueError as exc:
-    st.error(str(exc))
-    st.stop()
-if f['FCFF'].iloc[-1] <= 0:
-    st.warning('Terminal FCFF is not positive. A perpetual-growth terminal value may not be economically meaningful.')
-st.subheader('Valuation summary')
-m = st.columns(4)
-for col,key in zip(m,['Enterprise value','Equity value','Implied price / share','Terminal value share %']):
-    col.metric(key,f"{value[key]:,.2f}"+(' %' if key.endswith('%') else ''))
-fig = go.Figure()
-fig.add_bar(x=f.index,y=f['FCFF'],name='Projected FCFF',marker_color='#1dcaa2')
-fig.update_layout(title='Projected unlevered free cash flows (millions)',template='plotly_dark',height=330)
-st.plotly_chart(fig,use_container_width=True)
-
-st.markdown('#### WACC / perpetual-growth sensitivity · implied price per share')
-ws = [wacc + x/100 for x in [-2,-1,0,1,2]]
-gs = [growth + x/100 for x in [-1,-.5,0,.5,1]]
-rows=[]
-for ww in ws:
-    rec={'WACC':f'{ww:.1%}'}
-    for gg in gs:
-        rec[f'{gg:.1%}'] = round(dcf(f,base,ww,gg)['Implied price / share'],2) if ww > gg else None
-    rows.append(rec)
-st.dataframe(pd.DataFrame(rows).set_index('WACC'),use_container_width=True)
-
-st.caption('Year-end discounting; enterprise value plus opening cash less opening debt. No lease, minority-interest or other non-operating adjustments are included.')
-st.download_button('Download valuation CSV', pd.Series(value).to_csv(), 'dcf_valuation.csv', mime='text/csv')
+    st.error(str(exc));st.stop()
+for col,key in zip(st.columns(3),['Enterprise value','Equity value','Implied price / share']):col.metric(key,f'{result[key]:,.2f}')
+st.caption(f"Terminal value contribution: {result['Terminal value share %']:.1f}%")
+st.bar_chart(f[['FCFF']])
+st.dataframe(pd.Series(result,name='Value').to_frame(),use_container_width=True)
+if method.startswith('Perpetual'):
+    sensitivity={}
+    for ww in [wacc-.02,wacc-.01,wacc,wacc+.01,wacc+.02]:
+        row={}
+        for gg in [g-.01,g-.005,g,g+.005,g+.01]:
+            row[f'{gg:.1%}']=value_business(f['FCFF'],ww,**{**kw,'growth':gg,'terminal_fcff':norm*(1+gg)/(1+g)})['Implied price / share'] if ww>gg and ww>-1 else None
+        sensitivity[f'{ww:.2%}']=row
+    st.subheader('WACC × growth sensitivity · price per share')
+    st.dataframe(pd.DataFrame.from_dict(sensitivity,orient='index'),use_container_width=True)
+st.download_button('Export valuation CSV',pd.Series(result).to_csv(),'valuation.csv',mime='text/csv')

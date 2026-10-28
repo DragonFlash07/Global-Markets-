@@ -3,7 +3,7 @@
 ## Working status
 Local implementation: explicit opening balances, annual forecasts, cash/financing schedules, tax-loss carry-forward, separate FCFF and DCF. Company research targets are BHP Group and Reliance Jio Infocomm Limited (not Jio Financial Services, Jio Platforms or Reliance Industries). Existing market/chart pages remain.
 
-No official company financial amounts have been imported or validated yet. Company mode requires manually entered opening balances and a source reference. The source reference and checkbox are analyst attestations, not an automated audit. Synthetic examples are explicitly labelled.
+FY2024–FY2026 reported snapshots for BHP consolidated and Reliance Jio Infocomm standalone are now loaded from official annual statements. Reported balance-sheet categories and cash-flow totals reconcile; cash rollforward checks include BHP overdraft/FX conventions. The model starts from FY2026 opening-mapping balances. Analyst edits and forecasts are separate from immutable reported history. This is arithmetic/source transcription QA, not an audit opinion or full model validation. Synthetic examples remain separate.
 
 ## Sources to map next
 - BHP annual reports: https://www.bhp.com/annualreport
@@ -26,7 +26,10 @@ BHP: segment production volumes, realised commodity prices, unit costs, royaltie
 - CFI course files are private reference materials and must not be committed to public source.
 
 ## Acceptance still outstanding
-Full CFI workbook scenario/tax/financing parity, sourced company historical mapping, sector schedules, FX/market-price comparison, persistence across independent sessions, live data and browser visual checks. Existing repository review reports a separately tested 32-test implementation; that code has not been supplied here and is not overwritten or claimed recovered.
+Full CFI workbook scenario/tax/financing parity, full historical-to-forecast accounting mapping, sector schedules, FX/market-price comparison, persistence across independent sessions, live data and browser visual checks. Existing repository review reports a separately tested 32-test implementation; that code has not been supplied here and is not overwritten or claimed recovered.
 
 ## Environment handoff
 This workspace is not the Windows OneDrive folder. Share source through Git and use a single branch/commit as the coding baseline. Keep privately licensed reference files outside the public repository. A separate Codex session needs those references attached or granted as local folder access; seeing a chat does not establish identical filesystem access.
+
+## Preview validation
+22 calculation tests passed on 28 October 2026. Streamlit AppTest passed for company history, source-loaded Jio forecast and EV-only gate. See docs/DEPLOY_PREVIEW.md for exact deployment coordinates. Quarterly refresh, browser visual QA and full company-specific accounting remain outstanding.

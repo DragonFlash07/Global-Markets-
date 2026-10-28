@@ -8,6 +8,7 @@ if not model:
     st.info('Build and reconcile a three-statement forecast first.')
     st.page_link('pages/3_financial_model.py',label='Open three-statement model'); st.stop()
 f,b = model['forecast'],model['base']
+st.caption('Valuation timing: opening fiscal year-end, followed by full annual year-end cash flows. This is not a valuation as of today.')
 st.subheader(f"{model['company']} · {model['scenario']} · {model['currency']}")
 st.caption(f"Forecast snapshot {model['version']} · opening FY{model['period']} · amounts and shares in millions")
 if model['learning']: st.warning('Synthetic learning example — not a company valuation.')
@@ -24,7 +25,8 @@ with st.expander('CAPM and market-value financing weights', expanded=True):
     ew=d.number_input('Equity market-value weight %',value=80.,min_value=0.,max_value=100.)/100
     re,wacc=cost_of_capital(rf,beta,erp,rd,tax,ew)
     st.caption(f'Cost of equity: {re:.2%} · calculated WACC: {wacc:.2%}. Defaults are illustrative; rates must match the reporting currency.')
-    evidence=st.text_input('WACC sources and as-of date')
+    evidence=st.text_input('WACC sources and as-of date', value='Illustrative analyst assumptions; no market-source calibration')
+    st.warning('WACC defaults are illustrative. The result is a scenario estimate, not an independently researched target price.')
 if not model['learning'] and not evidence.strip():
     st.info('Document the WACC sources and date before computing a company valuation.'); st.stop()
 method=st.radio('Terminal method',['Perpetual growth','Exit EBITDA multiple'], horizontal=True)
@@ -35,20 +37,26 @@ st.caption('Normalize terminal reinvestment and margins explicitly. This control
 with st.expander('Enterprise-to-equity bridge',expanded=True):
     cols=st.columns(3)
     adjustments={}
-    for i,(key,label,default) in enumerate([('cash','Opening cash',b.cash),('debt','Opening debt',b.debt),('minority','Non-controlling interests',0.),('preferred','Preferred equity',0.),('other_assets','Non-operating assets excluding cash',0.),('shares','Diluted shares (millions)',b.shares)]):
+    for i,(key,label,default) in enumerate([('cash','Opening cash',b.cash),('debt','Opening debt',b.debt),('minority','Non-controlling interests (BHP book-value proxy)',5398. if not model['learning'] and model['company']=='BHP Group' else 0.),('preferred','Preferred equity',0.),('other_assets','Non-operating assets excluding cash',0.),('shares','Diluted shares (millions)',b.shares)]):
         adjustments[key]=cols[i%3].number_input(label,value=float(default),min_value=0.)
-    st.caption('Use a valuation-date bridge consistently. Lease/spectrum obligations must be classified once, without double-counting related operating cash flows.')
+    st.caption('BHP: account for non-controlling interests and non-operating assets before interpreting equity value; zero defaults do not establish absence. Use a valuation-date bridge consistently. Lease/spectrum obligations must be classified once, without double-counting related operating cash flows.')
 try:
     kw=dict(growth=g,terminal_fcff=norm,**adjustments)
     if method.startswith('Exit'):kw.update(exit_multiple=multiple,exit_ebitda=float(f['EBITDA'].iloc[-1]))
     result=value_business(f['FCFF'],wacc,**kw)
 except ValueError as exc:
     st.error(str(exc));st.stop()
-for col,key in zip(st.columns(3),['Enterprise value','Equity value','Implied price / share']):col.metric(key,f'{result[key]:,.2f}')
+unresolved = model.get('capital_structure_unresolved',False)
+if unresolved:
+    st.metric('Enterprise value · scenario estimate', f"{result['Enterprise value']:,.2f}")
+    st.warning('Jio common-equity and per-share values are withheld until convertible preference, spectrum/lease treatment and the fully diluted capital structure are resolved. No parent-company share price is substituted.')
+    result = {key:val for key,val in result.items() if key not in ['Equity value','Implied price / share']}
+else:
+    for col,key in zip(st.columns(3),['Enterprise value','Equity value','Implied price / share']):col.metric(key,f'{result[key]:,.2f}')
 st.caption(f"Terminal value contribution: {result['Terminal value share %']:.1f}%")
 st.bar_chart(f[['FCFF']])
 st.dataframe(pd.Series(result,name='Value').to_frame(),use_container_width=True)
-if method.startswith('Perpetual'):
+if method.startswith('Perpetual') and not unresolved:
     sensitivity={}
     for ww in [wacc-.02,wacc-.01,wacc,wacc+.01,wacc+.02]:
         row={}
